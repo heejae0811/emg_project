@@ -146,7 +146,7 @@ for i in range(len(signal)):
         end_idx = i
         in_segment = False
         # 너무 짧은 노이즈 구간(0.1초 이하)은 무시
-        if (end_idx - start_idx) / 1000 > 0.1:
+        if (end_idx - start_idx) / fs > 0.1:
             segments.append((time[start_idx], time[end_idx]))
 
 # 시각화
