@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 # ===================================
 # Step 1. Raw Data Import
 # ===================================
-df = pd.read_csv("./data/5kg curl_EMG.csv", skiprows=3)
+df = pd.read_csv("./data/5kg_curl_EMG.csv", skiprows=3)
 df.columns = ["sample", "biceps", "triceps", "triceps2"]  # 컬럼명 재설정
 fs = 1000  # Hz
 dt = 1 / fs
@@ -85,7 +85,7 @@ plt.show()
 window_ms = 50  # RMS 윈도우 길이 (50ms)
 window_size = int(fs * (window_ms / 1000))  # 샘플 단위로 변환 (=50ms*1000Hz=50샘플)
 
-df["biceps_rms"] = (df["biceps_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2))))
+df["biceps_rms"] = df["biceps_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
 df["triceps_rms"] = df["triceps_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
 
 # 시각화
@@ -103,12 +103,34 @@ plt.show()
 # ===================================
 # Step 6. Normalization (Maximum Voluntary Contraction, MVC)
 # 최대 힘 대비 근육이 얼마나 활성화되었는지 확인하기 위해 각 신호를 MVC 값으로 나눈다.
-# MVC를 따로 측정해야 하는데 측정을 안했을 경우, 실험 내 최대 RMS를 대체 MVC로 사용
 # ===================================
-MVC_biceps = df["biceps_rms"].max()
-MVC_triceps = df["triceps_rms"].max()
+def compute_mvc(file_path, muscle_name, fs=1000):
+    mvc_df = pd.read_csv(file_path, skiprows=3)
+    mvc_df.columns = ["sample", "biceps", "triceps", "triceps2"]
 
-# %MVC
+    # 문자열 데이터 대비
+    mvc_df[muscle_name] = pd.to_numeric(mvc_df[muscle_name], errors='coerce').fillna(0)
+
+    # 1. Offset 제거
+    mvc_df[f"{muscle_name}_demean"] = mvc_df[muscle_name] - np.mean(mvc_df[muscle_name])
+
+    # 2. 필터링
+    filt = bandpass_filter(mvc_df[f"{muscle_name}_demean"], 20, 450, fs)
+    filt = notch_filter(filt, fs, freq=60)
+
+    # 3. Rectification
+    rect = np.abs(filt)
+
+    # 4. RMS 계산
+    window_size = int(fs * 0.05)  # 50ms
+    rms = pd.Series(rect).rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
+
+    # 5. 최대 RMS 반환
+    return rms.max(skipna=True)
+
+MVC_biceps = compute_mvc("./data/biceps_MVIC_EMG.csv", "biceps", fs)
+MVC_triceps = compute_mvc("./data/triceps_MVIC_EMG.csv", "triceps", fs)
+
 df["biceps_norm"] = (df["biceps_rms"] / MVC_biceps) * 100
 df["triceps_norm"] = (df["triceps_rms"] / MVC_triceps) * 100
 
