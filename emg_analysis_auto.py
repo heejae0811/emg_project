@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.signal import butter, filtfilt, iirnotch
 import matplotlib.pyplot as plt
+import seaborn as sns
 
 
 # ===================================
@@ -115,21 +116,70 @@ summary_df = pd.DataFrame(results)
 summary_df.sort_values(by=["Exercise", "Load (kg)"], inplace=True)
 summary_df.to_csv("./results/emg_summary_all.csv", index=False)
 
-print("\n--- Final Summary ---")
-print(summary_df)
 
 # ===================================
-# 시각화 (Biceps, Triceps Mean vs Load)
+# 1️⃣ Biceps RMS (%MVC) load(5, 10, 14kg) for Arm vs Hammer Curl
 # ===================================
-plt.figure(figsize=(8,5))
+plt.figure(figsize=(7,5))
 for ex in summary_df["Exercise"].unique():
-    temp = summary_df[summary_df["Exercise"] == ex]
-    plt.plot(temp["Load (kg)"], temp["Mean_Biceps_%MVC"], 'o-', label=f"{ex} - Biceps")
-    plt.plot(temp["Load (kg)"], temp["Mean_Triceps_%MVC"], 's--', label=f"{ex} - Triceps")
+    subset = summary_df[summary_df["Exercise"] == ex]
+    plt.plot(subset["Load (kg)"], subset["Mean_Biceps_%MVC"], marker='o', label=f"{ex}")
 
 plt.xlabel("Load (kg)")
-plt.ylabel("Mean EMG (%MVC)")
-plt.title("Biceps & Triceps Mean %MVC by Load")
-plt.legend()
+plt.ylabel("Biceps RMS (%MVC)")
+plt.title("Biceps RMS (%MVC) as a Function of Load (Arm vs Hammer)")
+plt.legend(title="Exercise Type")
 plt.grid(True, alpha=0.3)
 plt.show()
+
+
+# ===================================
+# 2️⃣ Compare EMG amplitudes between Arm Curl and Hammer Curl under the same load
+# ===================================
+fig, axes = plt.subplots(1, 2, figsize=(12,5), sharey=True)
+
+# 🎯 1️⃣ Biceps
+sns.barplot(
+    data=summary_df, x="Load (kg)", y="Mean_Biceps_%MVC",
+    hue="Exercise", palette="Set2", edgecolor="black", ax=axes[0]
+)
+axes[0].set_title("Biceps: EMG Amplitude Comparison", fontsize=13, weight='bold')
+axes[0].set_xlabel("Load (kg)")
+axes[0].set_ylabel("Mean RMS (%MVC)")
+axes[0].grid(axis='y', alpha=0.3)
+axes[0].legend(title="Exercise", loc="upper left")
+
+# 🎯 2️⃣ Triceps
+sns.barplot(
+    data=summary_df, x="Load (kg)", y="Mean_Triceps_%MVC",
+    hue="Exercise", palette="coolwarm", edgecolor="black", ax=axes[1]
+)
+axes[1].set_title("Triceps: EMG Amplitude Comparison", fontsize=13, weight='bold')
+axes[1].set_xlabel("Load (kg)")
+axes[1].set_ylabel("")
+axes[1].grid(axis='y', alpha=0.3)
+axes[1].legend(title="Exercise", loc="upper left")
+
+# 전체 제목
+plt.suptitle("Comparison of EMG Amplitudes under the Same Load", fontsize=15, weight='bold')
+plt.tight_layout(rect=[0, 0, 1, 0.95])
+plt.show()
+
+
+# ===================================
+# 3️⃣ Summary Table: Mean & Peak RMS (%MVC)
+# ===================================
+table = summary_df[[
+    "Exercise", "Load (kg)",
+    "Mean_Biceps_%MVC", "Peak_Biceps_%MVC",
+    "Mean_Triceps_%MVC", "Peak_Triceps_%MVC"
+]]
+table.rename(columns={
+    "Mean_Biceps_%MVC": "Biceps Mean RMS (%MVC)",
+    "Peak_Biceps_%MVC": "Biceps Peak RMS (%MVC)",
+    "Mean_Triceps_%MVC": "Triceps Mean RMS (%MVC)",
+    "Peak_Triceps_%MVC": "Triceps Peak RMS (%MVC)"
+}, inplace=True)
+
+print("\n=== Summary Table ===")
+print(table.to_string(index=False))
