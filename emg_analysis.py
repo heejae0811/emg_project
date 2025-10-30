@@ -1,8 +1,8 @@
 import os
 import numpy as np
 import pandas as pd
-from scipy.signal import butter, filtfilt, iirnotch
 import matplotlib.pyplot as plt
+from scipy.signal import butter, filtfilt, iirnotch
 
 
 # ===================================
@@ -13,15 +13,14 @@ df.columns = ["sample", "biceps", "triceps", "triceps2"]  # 컬럼명 재설정
 fs = 1000  # Hz
 dt = 1 / fs
 df["time"] = df["sample"] / fs  # Hz를 시간으로 변환
-muscles = ["biceps", "triceps", "triceps2"]  # 분석할 근육 리스트
 
 
 # ===================================
 # Step 2. Offset Removal: Global Demean (전체에서 평균 빼기)
 # 움직이지 않아도 신호가 0이 아닌 경우가 있기 때문에 보정을 통해 0이 되도록 만든다.
 # ===================================
-df["biceps_demean"] = df["biceps"] - np.mean(df["biceps"])
-df["triceps_demean"] = df["triceps"] - np.mean(df["triceps"])
+for m in ["biceps", "triceps", "triceps2"]:
+    df[f"{m}_demean"] = df[m] - np.mean(df[m])
 
 
 # ===================================
@@ -40,14 +39,10 @@ def notch_filter(data, fs, freq=60.0, Q=30):
     b, a = iirnotch(w0, Q)
     return filtfilt(b, a, data)
 
-biceps_filt = bandpass_filter(df["biceps_demean"], 20, 450, fs)
-biceps_filt = notch_filter(biceps_filt, fs, freq=60)
-
-triceps_filt = bandpass_filter(df["triceps_demean"], 20, 450, fs)
-triceps_filt = notch_filter(triceps_filt, fs, freq=60)
-
-df["biceps_filt"] = biceps_filt
-df["triceps_filt"] = triceps_filt
+for m in ["biceps", "triceps", "triceps2"]:
+    filt = bandpass_filter(df[f"{m}_demean"], 20, 450, fs)
+    filt = notch_filter(filt, fs, freq=60)
+    df[f"{m}_filt"] = filt
 
 # 시각화
 plt.figure(figsize=(10,5))
@@ -65,8 +60,9 @@ plt.show()
 # Step 4. Rectification
 # EMG 신호는 양음 전위가 번갈아 진동 하는데 근육의 활성화만 보면 되기 때문에 신호의 크기를 절댓값으로 바꾼다.
 # ===================================
-df["biceps_rect"] = np.abs(df["biceps_filt"])
-df["triceps_rect"] = np.abs(df["triceps_filt"])
+for m in ["biceps", "triceps", "triceps2"]:
+    df[f"{m}_rect"] = np.abs(df[f"{m}_filt"])
+
 
 # 시각화
 plt.figure(figsize=(10,5))
@@ -87,8 +83,9 @@ plt.show()
 window_ms = 50  # RMS 윈도우 길이 (50ms)
 window_size = int(fs * (window_ms / 1000))  # 샘플 단위로 변환 (=50ms*1000Hz=50샘플)
 
-df["biceps_rms"] = df["biceps_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
-df["triceps_rms"] = df["triceps_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
+for m in ["biceps", "triceps", "triceps2"]:
+    df[f"{m}_rms"] = df[f"{m}_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
+
 
 # 시각화
 plt.figure(figsize=(10,5))
@@ -107,11 +104,6 @@ plt.show()
 # 최대 힘 대비 근육이 얼마나 활성화되었는지 확인하기 위해 각 신호를 MVC 값으로 나눈다.
 # ===================================
 def compute_mvc(file_path, muscle_name, fs=1000):
-    """
-    file_path: MVC 데이터 파일 경로
-    muscle_name: 'biceps' 또는 'triceps2' 중 하나
-    fs: 샘플링 주파수 (Hz)
-    """
     # 파일 불러오기
     mvc_df = pd.read_csv(file_path)
 
@@ -122,31 +114,33 @@ def compute_mvc(file_path, muscle_name, fs=1000):
 
     signal = pd.to_numeric(mvc_df[muscle_name], errors='coerce').fillna(0)
 
-    # 1️⃣ Offset 제거
+    # Offset 제거
     demean = signal - np.mean(signal)
 
-    # 2️⃣ Band-pass + Notch 필터
+    # Band-pass + Notch 필터
     filt = bandpass_filter(demean, 20, 450, fs)
     filt = notch_filter(filt, fs, freq=60)
 
-    # 3️⃣ Rectification
+    # Rectification
     rect = np.abs(filt)
 
-    # 4️⃣ RMS (50ms 윈도우)
+    # RMS (50ms 윈도우)
     window_size = int(fs * 0.05)
     rms = pd.Series(rect).rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x ** 2)))
 
-    # 5️⃣ NaN 제거 후 최대 RMS 반환
+    # NaN 제거 후 최대 RMS 반환
     mvc_value = rms.max(skipna=True)
     print(f"MVC ({muscle_name}) from {os.path.basename(file_path)} = {mvc_value:.4f}")
     return mvc_value
 
 
-MVC_biceps = compute_mvc("./data/biceps_MVIC_EMG.csv", "Biceps", fs)
-MVC_triceps = compute_mvc("./data/triceps_MVIC_EMG.csv", "Triceps2", fs)
+MVC_biceps = compute_mvc("./data/biceps_MVIC_EMG.csv", "1. Biceps", fs)
+MVC_triceps = compute_mvc("./data/triceps_MVIC_EMG.csv", "2. Triceps", fs)
+MVC_triceps2 = compute_mvc("./data/triceps_MVIC_EMG.csv", "3. Tricpes2", fs)
 
 df["biceps_norm"] = (df["biceps_rms"] / MVC_biceps) * 100
 df["triceps_norm"] = (df["triceps_rms"] / MVC_triceps) * 100
+df["triceps2_norm"] = (df["triceps2_rms"] / MVC_triceps) * 100
 
 # 시각화
 plt.figure(figsize=(10,5))
@@ -208,20 +202,28 @@ for i, (start, end) in enumerate(segments, start=1):
     seg_time = df.loc[seg_mask, "time"]
     seg_biceps = df.loc[seg_mask, "biceps_norm"]
     seg_triceps = df.loc[seg_mask, "triceps_norm"]
+    seg_triceps2 = df.loc[seg_mask, "triceps2_norm"]
 
-    # 평균 및 최대
+    # 평균, 최대, iEMG
     mean_biceps = seg_biceps.mean()
-    peak_biceps = seg_biceps.max()
     mean_triceps = seg_triceps.mean()
-    peak_triceps = seg_triceps.max()
+    mean_triceps2 = seg_triceps2.mean()
 
-    # 적분(iEMG)
+    peak_biceps = seg_biceps.max()
+    peak_triceps = seg_triceps.max()
+    peak_triceps2 = seg_triceps2.max()
+
     iEMG_biceps = np.sum(seg_biceps) * dt
     iEMG_triceps = np.sum(seg_triceps) * dt
+    iEMG_triceps2 = np.sum(seg_triceps2) * dt
 
-    # onset/duration은 자동 segmentation 결과를 그대로 사용 가능
-    onset_time = start
     duration = end - start
+
+    # 근육 간 차이 계산
+    mean_diff_bt = mean_biceps - mean_triceps
+    mean_diff_bt2 = mean_biceps - mean_triceps2
+    peak_diff_bt = peak_biceps - peak_triceps
+    peak_diff_bt2 = peak_biceps - peak_triceps2
 
     features.append({
         "Segment": i,
