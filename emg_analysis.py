@@ -1,5 +1,6 @@
-import pandas as pd
+import os
 import numpy as np
+import pandas as pd
 from scipy.signal import butter, filtfilt, iirnotch
 import matplotlib.pyplot as plt
 
@@ -12,6 +13,7 @@ df.columns = ["sample", "biceps", "triceps", "triceps2"]  # 컬럼명 재설정
 fs = 1000  # Hz
 dt = 1 / fs
 df["time"] = df["sample"] / fs  # Hz를 시간으로 변환
+muscles = ["biceps", "triceps", "triceps2"]  # 분석할 근육 리스트
 
 
 # ===================================
@@ -105,31 +107,43 @@ plt.show()
 # 최대 힘 대비 근육이 얼마나 활성화되었는지 확인하기 위해 각 신호를 MVC 값으로 나눈다.
 # ===================================
 def compute_mvc(file_path, muscle_name, fs=1000):
-    mvc_df = pd.read_csv(file_path, skiprows=3)
-    mvc_df.columns = ["sample", "biceps", "triceps", "triceps2"]
+    """
+    file_path: MVC 데이터 파일 경로
+    muscle_name: 'biceps' 또는 'triceps2' 중 하나
+    fs: 샘플링 주파수 (Hz)
+    """
+    # 파일 불러오기
+    mvc_df = pd.read_csv(file_path)
 
-    # 문자열 데이터 대비
-    mvc_df[muscle_name] = pd.to_numeric(mvc_df[muscle_name], errors='coerce').fillna(0)
+    # 지정된 근육 컬럼만 사용 (존재 여부 확인)
+    if muscle_name not in mvc_df.columns:
+        raise ValueError(
+            f"'{muscle_name}' column not found in {file_path}. Available columns: {mvc_df.columns.tolist()}")
 
-    # 1. Offset 제거
-    mvc_df[f"{muscle_name}_demean"] = mvc_df[muscle_name] - np.mean(mvc_df[muscle_name])
+    signal = pd.to_numeric(mvc_df[muscle_name], errors='coerce').fillna(0)
 
-    # 2. 필터링
-    filt = bandpass_filter(mvc_df[f"{muscle_name}_demean"], 20, 450, fs)
+    # 1️⃣ Offset 제거
+    demean = signal - np.mean(signal)
+
+    # 2️⃣ Band-pass + Notch 필터
+    filt = bandpass_filter(demean, 20, 450, fs)
     filt = notch_filter(filt, fs, freq=60)
 
-    # 3. Rectification
+    # 3️⃣ Rectification
     rect = np.abs(filt)
 
-    # 4. RMS 계산
-    window_size = int(fs * 0.05)  # 50ms
-    rms = pd.Series(rect).rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
+    # 4️⃣ RMS (50ms 윈도우)
+    window_size = int(fs * 0.05)
+    rms = pd.Series(rect).rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x ** 2)))
 
-    # 5. 최대 RMS 반환
-    return rms.max(skipna=True)
+    # 5️⃣ NaN 제거 후 최대 RMS 반환
+    mvc_value = rms.max(skipna=True)
+    print(f"MVC ({muscle_name}) from {os.path.basename(file_path)} = {mvc_value:.4f}")
+    return mvc_value
 
-MVC_biceps = compute_mvc("./data/biceps_MVIC_EMG.csv", "biceps", fs)
-MVC_triceps = compute_mvc("./data/triceps_MVIC_EMG.csv", "triceps", fs)
+
+MVC_biceps = compute_mvc("./data/biceps_MVIC_EMG.csv", "Biceps", fs)
+MVC_triceps = compute_mvc("./data/triceps_MVIC_EMG.csv", "Triceps2", fs)
 
 df["biceps_norm"] = (df["biceps_rms"] / MVC_biceps) * 100
 df["triceps_norm"] = (df["triceps_rms"] / MVC_triceps) * 100
