@@ -8,7 +8,7 @@ from scipy.signal import butter, filtfilt, iirnotch
 # ===================================
 # Step 1. Raw Data Import
 # ===================================
-df = pd.read_csv("./data/5kg_curl_EMG.csv", skiprows=3)
+df = pd.read_csv("./data/10kg_curl_EMG.csv", skiprows=3)
 df.columns = ["sample", "biceps", "triceps", "triceps2"]  # 컬럼명 재설정
 fs = 1000  # Hz
 dt = 1 / fs
@@ -22,6 +22,15 @@ df["time"] = df["sample"] / fs  # Hz를 시간으로 변환
 for m in ["biceps", "triceps", "triceps2"]:
     df[f"{m}_demean"] = df[m] - np.mean(df[m])
 
+plt.figure(figsize=(10,5))
+plt.plot(df["time"], df["biceps"], label="Raw EMG Signal")
+plt.plot(df["time"], df["biceps_demean"], label="Offset Removed EMG")
+plt.title("Offset Removal (Global Demean - 10kg Arm Curl Biceps)")
+plt.xlabel("Time (s)")
+plt.ylabel("Amplitude (V)")
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
 
 # ===================================
 # Step 3. Filtering: Band-pass (20-450Hz) + Notch (50/60Hz)
@@ -34,7 +43,7 @@ def bandpass_filter(data, lowcut, highcut, fs, order=4):
     b, a = butter(order, [low, high], btype='band') # 필터링 함수
     return filtfilt(b, a, data)
 
-def notch_filter(data, fs, freq=60.0, Q=30):
+def notch_filter(data, fs, freq=60, Q=30):
     w0 = freq / (fs / 2)
     b, a = iirnotch(w0, Q)
     return filtfilt(b, a, data)
@@ -44,13 +53,12 @@ for m in ["biceps", "triceps", "triceps2"]:
     filt = notch_filter(filt, fs, freq=60)
     df[f"{m}_filt"] = filt
 
-# 시각화
 plt.figure(figsize=(10,5))
-plt.plot(df["time"], df["biceps_demean"], label="Before Filtering")
-plt.plot(df["time"], df["biceps_filt"], label="After Filtering")
+plt.plot(df["time"], df["biceps_demean"], label="Offset Removed EMG")
+plt.plot(df["time"], df["biceps_filt"], label="Filtered EMG")
+plt.title("EMG Filtering (Bandpass + Notch - 10kg Arm Curl Biceps)")
 plt.xlabel("Time (s)")
 plt.ylabel("Amplitude (V)")
-plt.title("EMG Filtering (5kg Curl Biceps)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -63,14 +71,12 @@ plt.show()
 for m in ["biceps", "triceps", "triceps2"]:
     df[f"{m}_rect"] = np.abs(df[f"{m}_filt"])
 
-
-# 시각화
 plt.figure(figsize=(10,5))
 plt.plot(df["time"], df["biceps_filt"], label="Filtered EMG")
 plt.plot(df["time"], df["biceps_rect"], label="Rectified EMG")
+plt.title("EMG Rectification (10kg Arm Curl Biceps)")
 plt.xlabel("Time (s)")
 plt.ylabel("Amplitude (V)")
-plt.title("EMG Rectification (5kg Curl Biceps)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -86,14 +92,12 @@ window_size = int(fs * (window_ms / 1000))  # 샘플 단위로 변환 (=50ms*100
 for m in ["biceps", "triceps", "triceps2"]:
     df[f"{m}_rms"] = df[f"{m}_rect"].rolling(window=window_size, center=True).apply(lambda x: np.sqrt(np.mean(x**2)))
 
-
-# 시각화
 plt.figure(figsize=(10,5))
-plt.plot(df["time"], df["biceps_rect"], label="Rectified EMG", alpha=0.5)
-plt.plot(df["time"], df["biceps_rms"], label="Smoothed EMG (RMS, 50ms window)")
+plt.plot(df["time"], df["biceps_rect"], label="Rectified EMG")
+plt.plot(df["time"], df["biceps_rms"], label="Smoothed EMG")
+plt.title("EMG Smoothing (Root Mean Square, RMS - 10kg Arm Curl Biceps)")
 plt.xlabel("Time (s)")
 plt.ylabel("Amplitude (V)")
-plt.title("EMG Smoothing (5kg Curl Biceps)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -133,25 +137,22 @@ def compute_mvc(file_path, muscle_name, fs=1000):
     print(f"MVC ({muscle_name}) from {os.path.basename(file_path)} = {mvc_value:.4f}")
     return mvc_value
 
-
 MVC_biceps = compute_mvc("./data/biceps_MVIC_EMG.csv", "1. Biceps", fs)
 MVC_triceps = compute_mvc("./data/triceps_MVIC_EMG.csv", "2. Triceps", fs)
 MVC_triceps2 = compute_mvc("./data/triceps_MVIC_EMG.csv", "3. Tricpes2", fs)
 
 df["biceps_norm"] = (df["biceps_rms"] / MVC_biceps) * 100
 df["triceps_norm"] = (df["triceps_rms"] / MVC_triceps) * 100
-df["triceps2_norm"] = (df["triceps2_rms"] / MVC_triceps) * 100
+df["triceps2_norm"] = (df["triceps2_rms"] / MVC_triceps2) * 100
 
-# 시각화
 plt.figure(figsize=(10,5))
-plt.plot(df["time"], df["biceps_norm"], label="Biceps (% of Max RMS)")
-plt.plot(df["time"], df["triceps_norm"], label="Triceps (% of Max RMS)")
+plt.plot(df["time"], df["biceps_rms"]/df["biceps_rms"].max(), label="Smoothed EMG")
+plt.plot(df["time"], df["biceps_norm"]/100, label="Normalized EMG (% of Max RMS)")
+plt.title("EMG Normalization (Relative to Max RMS)")
 plt.xlabel("Time (s)")
-plt.ylabel("%MVC (relative to max RMS)")
+plt.ylabel("Scaled Amplitude (0-1)")
 plt.legend()
 plt.grid(True, alpha=0.3)
-plt.title("EMG Normalization (Relative to Max RMS)")
-plt.show()
 
 
 # ===================================
@@ -179,14 +180,13 @@ for i in range(len(signal)):
         if (end_idx - start_idx) / fs > 0.1:
             segments.append((time[start_idx], time[end_idx]))
 
-# 시각화
 plt.figure(figsize=(10,5))
 plt.plot(time, signal, label="Biceps %MVC")
 for (start, end) in segments:
     plt.axvspan(start, end, color="red", alpha=0.2)
-plt.xlabel("Time (s)")
-plt.ylabel("%MVC")
 plt.title("Automatic Segmentation by Threshold (10%MVC)")
+plt.xlabel("Time (s)")
+plt.ylabel("%MVC (relative to max RMS)")
 plt.legend()
 plt.grid(True, alpha=0.3)
 plt.show()
@@ -244,4 +244,4 @@ print("\n--- Feature Summary ---")
 print(feature_df)
 
 # CSV로 저장
-feature_df.to_csv("emg_feature_summary_5kg.csv", index=False)
+feature_df.to_csv("emg_curl_summary_10kg.csv", index=False)
